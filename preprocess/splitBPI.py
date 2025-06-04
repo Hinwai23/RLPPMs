@@ -4,6 +4,7 @@ import pm4py
 import random
 import datetime
 import time
+import copy
 from pm4py.objects.log.obj import EventLog
 from pm4py.objects.log.exporter.xes import exporter as xes_exporter
 from pm4py.algo.filtering.log.attributes import attributes_filter
@@ -124,6 +125,30 @@ def addDuration(path):
 	return tracefilter_log_pos_2, path
 
 
+def merge_consecutive_same_events(tracefilter_log):
+    """
+    Merge consecutive events with the same concept:name in a trace, and sum their durations.
+    """
+    for trace in tracefilter_log:
+        last_event = Event()
+        last_event["concept:name"] = ""
+        for event in trace:
+            if last_event["concept:name"] == event["concept:name"] and event["concept:name"] != "TO_REMOVE":
+                if "duration" in last_event and "duration" in event:
+                    event["duration"] = event["duration"] + last_event["duration"]
+                idx = [i for i, e in enumerate(trace) if e == last_event][0]
+                trace[idx]["concept:name"] = "TO_REMOVE"
+            last_event = event
+    merged_log = attributes_filter.apply_events(
+        tracefilter_log, ["TO_REMOVE"],
+        parameters={
+            attributes_filter.Parameters.ATTRIBUTE_KEY: "concept:name",
+            attributes_filter.Parameters.POSITIVE: False
+        }
+    )
+    return merged_log
+
+
 
 def addRewardCumulative(tracefilter_log_pos_2, path):
 	output_path = path.replace(".xes", "_cumulative_rewards.xes")
@@ -158,8 +183,9 @@ if __name__ == '__main__':
 		print("Current working directory:", os.getcwd())
 		print('file:', file_name)
 		t1 = time.time()
-		log, path = addDuration("env/logs/80_20/" + file_name + '.xes')
+		log, path = addDuration("logs/80_20/" + file_name + '.xes')
+		log = merge_consecutive_same_events(log)
 		addRewardCumulative(log, path)
-		splitLog("env/logs/80_20/" + file_name + "_cumulative_rewards.xes", 80)
+		splitLog("logs/80_20/" + file_name + "_cumulative_rewards.xes", 80)
 		t2 = time.time()
 		print(t2-t1)

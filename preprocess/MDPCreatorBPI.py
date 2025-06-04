@@ -29,8 +29,16 @@ def create_mdp_csv(xes_file_path, output_csv_path=None):
         case_id = trace.attributes.get("concept:name", f"case_{trace_idx}")
         value = trace.attributes.get("amount", f"case_{trace_idx}")
 
+        if int(value) <= 6000:
+            amClass = 0
+        elif int(value) > 15000:
+            amClass = 2
+        else:
+            amClass = 1
+
         # state infos
-        work = 0
+        call = 0
+        miss = 0
         offer = 0
         reply = 0
         fix = 0
@@ -44,7 +52,7 @@ def create_mdp_csv(xes_file_path, output_csv_path=None):
                 current_state = event.get("concept:name", "") 
 
             else:
-                current_state = event.get("concept:name", "") + f"_{value}" + f"_{work}"  + f"_{offer}" + f"_{reply}" + f"_{fix}"
+                current_state = event.get("concept:name", "") + f",{call}"  + f",{miss}" + f",{offer}" + f",{reply}" + f",{fix}"
                 
             
             
@@ -55,20 +63,22 @@ def create_mdp_csv(xes_file_path, output_csv_path=None):
                 # Action (a): next event's concept:name
                 action = next_event.get("concept:name", "")
 
-                if action.startswith("W_"):
-                    work += 1
-                elif action == "O_SENT" or action == "O_SENT_BACK" :
+                if action == "W_Call_after_offer":
+                    call += 1
+                elif action == "W_Call_missing_information":
+                    miss += 1
+                elif action == "O_SENT":
                     offer += 1
-                elif action == "O_ACCEPTED" or action == "O_DECLINED":
+                elif action == "O_SENT_BACK":
                     reply += 1
                 elif action == "W_Fix_incomplete_submission":
-                    fix = 1
+                    fix += 1
                 
                 # Next state (s'): next event's concept:name 
                 if next_event.get("concept:name", "") == "END":
                     next_state = "END"
                 else:
-                    next_state = next_event.get("concept:name", "") + f"_{value}" + f"_{work}" + f"_{offer}" + f"_{reply}" + f"_{fix}"
+                    next_state = next_event.get("concept:name", "") + f",{call}" + f",{miss}" + f",{offer}" + f",{reply}" + f",{fix}"
                 
                 # Reward: next event's kpi:reward
                 reward = next_event.get("kpi:reward", 0)
@@ -79,7 +89,8 @@ def create_mdp_csv(xes_file_path, output_csv_path=None):
                     'a': action,
                     "s'": next_state,
                     'reward': reward,
-                    'case': case_id
+                    'case': case_id,
+                    'amount': value
                 })
 
     
