@@ -1,13 +1,15 @@
 import pandas as pd
 import numpy as np
-import gym
-from gym import spaces
+from gymnasium import spaces
+import gymnasium as gym
 import copy
 from collections import Counter
+from gymnasium import Wrapper
 
 
-train_df = pd.read_csv('../preprocess/logs/80_20/MDP/BPI_2012_cumulative_rewards_training_80_mdp.csv')
-test_df = pd.read_csv('../preprocess/logs/80_20/MDP/BPI_2012_cumulative_rewards_test_20_mdp.csv')
+
+train_df = pd.read_csv('preprocess/logs/80_20/MDP/BPI_2012_cumulative_rewards_training_80_mdp.csv')
+test_df = pd.read_csv('preprocess/logs/80_20/MDP/BPI_2012_cumulative_rewards_testing_20_mdp.csv')
 
 all_activities = sorted(train_df['a'].unique().tolist()) 
 activity2idx = {act: i for i, act in enumerate(all_activities)}
@@ -15,6 +17,8 @@ activity2idx = {act: i for i, act in enumerate(all_activities)}
 
 raw_rewards = {}      # raw_rewards[s][a] = [r1, r2, r3, ...]
 raw_next_states = {}  # raw_next_states[s][a] = [s'_1, s'_2, ...]
+
+
 
 for _, row in train_df.iterrows():
     s  = row['s']
@@ -31,7 +35,7 @@ train_transitions = {}  # train_transitions[s][a] = (chosen_next_s, r_avg)
 for s, adict in raw_next_states.items():
     for a, sp_list in adict.items():
         # sp_chosen = sp_list[0]
-        
+
         sp_counter = Counter(sp_list)
         sp_chosen = sp_counter.most_common(1)[0][0]
 
@@ -48,8 +52,6 @@ for _, row in test_df.iterrows():
     a      = row['a']
     sp     = row["s'"]
     amount = float(row['amount'])
-
-
     r_true = float(row['reward'])
 
     test_transitions.setdefault(s, {})[a] = (sp, r_true)
@@ -91,7 +93,8 @@ def scaled_reward(r_raw, is_end):
     # Step penalty
     step_penalty = 0
     if is_end:
-        r_scale = min(r_raw / 2000.0, 1.0)
+        # r_scale = min(r_raw / 2000.0, 1.0)
+        r_scale = r_raw / 2000.0
         return r_scale + step_penalty  
     else:
         r_mid = r_raw / 2000.0  
@@ -101,97 +104,130 @@ def scaled_reward(r_raw, is_end):
 
 
 class BPIEnv(gym.Env):
-    def __init__(self, transitions, activity2idx, use_true_end_reward=False):
+    metadata = {
+        "render_modes": ["human"],
+        "render_fps": 4,
+    }
+    
+    def __init__(self, transitions, activity2idx, use_true_end_reward=False, reward_scale=1.0, render_mode=None):
         super().__init__()
         self.action2idx = {a: i for i, a in enumerate(activity2idx.keys())}
         self.idx2action = {i: a for a, i in self.action2idx.items()}
         self.transitions = transitions
         self.current_state_str = None
         self.current_state_vec = None
-
         self.use_true_end_reward = use_true_end_reward
-
+        self.reward_scale = reward_scale
+        
+        self.render_mode = render_mode
 
         self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(29,), dtype=np.float32)
         self.action_space = spaces.Discrete(len(self.action2idx))
 
-    def reset(self):
+        self.valid_actions_per_state = {}
+        for state, actions in self.transitions.items():
+            valid_action_indices = [self.action2idx[action] for action in actions.keys() 
+                                  if action in self.action2idx]
+            self.valid_actions_per_state[state] = valid_action_indices
+
+    def get_valid_actions(self):
+        if self.current_state_str in self.valid_actions_per_state:
+            return self.valid_actions_per_state[self.current_state_str]
+        else:
+            return [] 
+
+    def get_action_mask(self):
+        mask = np.zeros(self.action_space.n, dtype=bool)
+        valid_actions = self.get_valid_actions()
+        if valid_actions:
+            mask[valid_actions] = True
+        return mask
+
+
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
+        
         self.current_state_str = "START"
         self.current_state_vec = encode_state("START")
-        return self.current_state_vec.copy()
-    
 
+        
+        return self.current_state_vec.copy(), {}
+    
     def step(self, action_idx):
         """
-        input:action_idx(0..23)
-        output:(next_obs, reward, done, info)
-        
-        - if (s, a) exists in transitions:
-            next_s, r_stored = transitions[s][a]
-            if use_true_end_reward=True and next_s=="END":
-                reward = r_stored  
-            else:
-                reward = scaled_reward(r_stored, next_s=="END")
-            done = (next_s == "END")
-            return next_obs = encode_state(next_s), reward, done, {}
-        - else:
-            next_obs = encode_state("END")
-            reward = -1.0  
-            done = True
-            info = {"unknown_transition": True}
+        input: action_idx(0..23)
+        output: (next_obs, reward, terminated, truncated, info)
         """
         s = self.current_state_str
+
+        valid_actions = self.get_valid_actions()
+        if action_idx not in valid_actions:
+            if valid_actions:
+                action_idx = np.random.choice(valid_actions)
+                penalty = -0.1
+                info = {"invalid_action_penalty": True}
+            else:
+                next_vec = encode_state("END")
+                reward = -0.5
+                terminated = True
+                truncated = False
+                info = {"no_valid_actions": True}
+                return next_vec, reward, terminated, truncated, info
+        else:
+            penalty = 0.0
+            info = {}
+
+
+
+
         action_str = self.idx2action[action_idx]
 
         if s in self.transitions and action_str in self.transitions[s]:
             next_s, r_stored = self.transitions[s][action_str]
-            if self.use_true_end_reward and next_s == "END":
-                reward = r_stored
+            if self.use_true_end_reward:
+                reward = r_stored * self.reward_scale
             else:
                 reward = scaled_reward(r_stored, next_s == "END")
 
-            done = (next_s == "END")
-            next_vec = self.encode_state(next_s)
+            terminated = (next_s == "END")
+            truncated = False
+            
+            next_vec = encode_state(next_s)
             self.current_state_str = next_s
             self.current_state_vec = next_vec.copy()
-            return next_vec, reward, done, {}
+
+
+            
+            return next_vec, reward, terminated, truncated, {}
 
         else:
-            next_vec = self.encode_state("END")
+            next_vec = encode_state("END")
             reward = -1.0
-            done = True
-            return next_vec, reward, done, {"unknown_transition": True}
+            terminated = True
+            truncated = False
+            return next_vec, reward, terminated, truncated, {"unknown_transition": True}
         
-
-    def render(self, mode='human'):
-        print("STATE:", self.current_state_str)
+    def render(self):
+        if self.render_mode == "human":
+            print("STATE:", self.current_state_str)
+            valid_actions = self.get_valid_actions()
+            print(f"VALID ACTIONS: {[self.idx2action[i] for i in valid_actions]}")
     
+    def close(self):
+        pass
 
-"""
-    def step(self, action_idx):
-        action_str = self.idx2action[action_idx]
-
-        if self.current_state_str not in self.transitions \
-           or action_str not in self.transitions[self.current_state_str]:
-            next_state_vec = self.current_state_vec.copy()
-            return next_state_vec, -1.0, False, {"invalid": True}
-
-        next_state_str, reward = self.transitions[self.current_state_str][action_str]
-        done = (next_state_str == "END")
-        if done:
-            next_state_vec = encode_state("END")
-        else:
-            next_state_vec = encode_state(next_state_str)
-
-        self.current_state_str = next_state_str
-        self.current_state_vec = next_state_vec.copy()
-
-        if next_state_str == "END":
-            r = scaled_reward(reward, is_end=True)
-        else:
-            r = scaled_reward(reward, is_end=False)
-
-        return next_state_vec, r, done, {}
-"""
 
     
+class MaskedEnvWrapper(Wrapper):
+    def __init__(self, env):
+        super().__init__(env)
+
+    def reset(self, **kwargs):
+        obs = self.env.reset(**kwargs)
+
+        return obs
+
+    def step(self, action):
+        obs, rew, done, trunc, info = self.env.step(action)
+        info["mask"] = self.env.get_action_mask()
+        return obs, rew, done, trunc, info

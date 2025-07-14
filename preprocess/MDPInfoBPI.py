@@ -50,4 +50,4 @@ def check_states_actions(train_csv, test_csv):
 
 
 if __name__ == "__main__":
-    check_states_actions("logs/80_20/MDP/BPI_2012_cumulative_rewards_training_80_mdp.csv", "logs/80_20/MDP/BPI_2012_cumulative_rewards_testing_20_mdp.csv")
+    check_states_actions("logs/80_20/MDP/event_log_10000_cumulative_rewards_training_80_mdp.csv", "logs/80_20/MDP/event_log_10000_cumulative_rewards_testing_20_mdp.csv")

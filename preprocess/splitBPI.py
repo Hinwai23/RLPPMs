@@ -178,7 +178,7 @@ def addRewardCumulative(tracefilter_log_pos_2, path):
 
 
 if __name__ == '__main__':
-	file_names = ['BPI_2012']
+	file_names = ['event_log_rare_10000']
 	for file_name in file_names:
 		print("Current working directory:", os.getcwd())
 		print('file:', file_name)
