@@ -1,22 +1,21 @@
-import sys
 import os
+import sys
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import torch
+import datetime
 import numpy as np
-from torch import nn
+import torch
+
+from torch.utils.tensorboard import SummaryWriter
+from tianshou.utils import TensorboardLogger
 
 from tianshou.env import DummyVectorEnv
 from tianshou.data import Collector, VectorReplayBuffer
-from tianshou.policy import PPOPolicy
-from tianshou.utils import TensorboardLogger
 from tianshou.trainer import OnpolicyTrainer
+from tianshou.policy import PPOPolicy
+from tianshou.utils.net.common import ActorCritic, Net
 from tianshou.utils.net.discrete import Actor, Critic
-
-
-
-from torch.utils.tensorboard import SummaryWriter
-import datetime
 
 from BPI_env.csv_to_gym_BPI import BPIEnv, activity2idx, train_transitions, all_transitions, MaskedEnvWrapper
 
@@ -33,62 +32,53 @@ def make_eval_env():
                use_true_end_reward=True, reward_scale=0.001)
     )
 
-class Net(nn.Module):
-    def __init__(self, input_dim, hidden_dims=(256,256,256,256)):
-        super().__init__()
-        layers = []
-        last = input_dim
-        for h in hidden_dims:
-            layers += [nn.Linear(last, h), nn.ReLU()]
-            last = h
-        self.model = nn.Sequential(*layers)
-        self.output_dim = hidden_dims[-1]
-        
-    def forward(self, obs, state=None, info={}):
-        if isinstance(obs, np.ndarray):
-            obs = torch.from_numpy(obs).float()
-        elif not isinstance(obs, torch.Tensor):
-            obs = torch.tensor(obs, dtype=torch.float32)
-        
-        return self.model(obs), state
+
+def save_best_fn(policy):
+    torch.save(policy.state_dict(), 'ppo_bpi_best.pth')
 
 
 
 
 if __name__ == "__main__":
-    # Reproducibility
-    seed = 42
-    np.random.seed(seed)
-    torch.manual_seed(seed)
 
     log_dir = f"training_logs/ppo_bpi_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
     writer = SummaryWriter(log_dir)
     logger = TensorboardLogger(writer)
 
-    # Vectorized environments
     train_envs = DummyVectorEnv([make_train_env for _ in range(4)])
-    eval_env = make_eval_env()
+    eval_envs = DummyVectorEnv([make_eval_env for _ in range(2)])
+    
+    seed = 42
+    torch.manual_seed(seed)
+    np.random.seed(seed)
     train_envs.seed(seed)
+    eval_envs.seed(seed)
 
-    # State and action dimensions
+    # Shapes
     state_shape = train_envs.observation_space[0].shape
     action_shape = train_envs.action_space[0].n
 
     device = "cpu"
 
-
-    net = Net(state_shape[0], hidden_dims=(256,256,256,256)).to(device)
-
+    # Networks
+    net = Net(state_shape, hidden_sizes=[256,256],activation=torch.nn.Mish,device=device).to(device)
     actor = Actor(net, action_shape, device=device).to(device)
     critic = Critic(net, device=device).to(device)
+    actor_critic = ActorCritic(actor, critic)
 
     optim = torch.optim.Adam(
-        list(actor.parameters()) + list(critic.parameters()),
-        lr=1e-4,
-        eps=1e-5,
+        actor_critic.parameters(),
+        lr=3e-4,
     )
 
-    # PPO policy
+    # orthogonal initialization
+    for m in actor_critic.modules():
+        if isinstance(m, torch.nn.Linear):
+            torch.nn.init.orthogonal_(m.weight)
+            torch.nn.init.zeros_(m.bias)
+
+
+    # Policy
     policy = PPOPolicy(
         actor=actor,
         critic=critic,
@@ -98,35 +88,41 @@ if __name__ == "__main__":
         max_grad_norm=0.5,
         eps_clip=0.2,
         vf_coef=0.5,
-        ent_coef=0.05,
+        ent_coef=0,
+        gae_lambda=0.95,
+        advantage_normalization=False,
         reward_normalization=False,
+        dual_clip=None,
+        value_clip=False,
         action_space=train_envs.action_space[0],
+        recompute_advantage=False,
+        deterministic_eval=True,
         action_scaling=False,
     )
 
-    # On-policy collectors
+    # Collectors
     buffer = VectorReplayBuffer(total_size=50000, buffer_num=len(train_envs))
     train_collector = Collector(policy, train_envs, buffer)
-    eval_collector = Collector(policy, eval_env)
+    eval_collector = Collector(policy, eval_envs)
 
-    # Training loop
+    # Trainer
     result = OnpolicyTrainer(
         policy=policy,
         train_collector=train_collector,
         test_collector=eval_collector,
         max_epoch=100,
-        step_per_epoch=10000,
-        step_per_collect=8192,
-        repeat_per_collect=20,
-        episode_per_test=20,
+        step_per_epoch=100,
+        step_per_collect=10000,
+        repeat_per_collect=10,
+        episode_per_test=100,
         batch_size=128,
         logger=logger,
+        save_best_fn=save_best_fn,
         verbose=True,
     ).run()
 
+
     writer.close()
 
-    # Save best policy
-    torch.save(policy.state_dict(), 'ppo_bpi_best.pth')
     
     print("Training completed!")

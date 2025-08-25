@@ -9,8 +9,8 @@ import gymnasium as gym
 from collections import defaultdict
 
 from BPI_env.csv_to_gym_BPI import BPIEnv, activity2idx, encode_state, all_transitions
-from benchmarkBPI.PPO import Net
 from tianshou.policy import PPOPolicy
+from tianshou.utils.net.common import ActorCritic, Net
 from tianshou.utils.net.discrete import Actor, Critic
 
 class PPOEvaluator:
@@ -18,6 +18,8 @@ class PPOEvaluator:
         """
         Initialize the PPO evaluator
         """
+        self.model_path = model_path
+        self.activity2idx = activity2idx
         self.model_path = model_path
         self.activity2idx = activity2idx
         self.idx2activity = {i: act for act, i in activity2idx.items()}
@@ -30,24 +32,20 @@ class PPOEvaluator:
         
     def _load_model(self):
         """Load the trained PPO model"""
-        # Model architecture should match the training
         state_shape = (29,)  # From the environment
         action_shape = len(self.activity2idx)
         device = "cpu"
         
-        # Create the same network structure as in training
-        net = Net(state_shape[0], hidden_dims=(256,256,256,256)).to(device)
-        actor = Actor(net, action_shape, device=device).to(device)
-        critic = Critic(net, device=device).to(device)
+        # Build networks consistent with training (BPI PPO.py)
+        base = Net(state_shape, hidden_sizes=[256,256], activation=torch.nn.Mish, device=device).to(device)
+        actor = Actor(base, action_shape, device=device).to(device)
+        critic = Critic(base, device=device).to(device)
+        actor_critic = ActorCritic(actor, critic)
         
-        # Create optimizer (needed for policy initialization)
-        optim = torch.optim.Adam(
-            list(actor.parameters()) + list(critic.parameters()),
-            lr=1e-4,
-            eps=1e-5,
-        )
+        # Optimizer required by policy
+        optim = torch.optim.Adam(actor_critic.parameters(), lr=3e-4)
         
-        # Create policy with same parameters as training
+        # Policy with training hyperparameters
         policy = PPOPolicy(
             actor=actor,
             critic=critic,
@@ -57,19 +55,22 @@ class PPOEvaluator:
             max_grad_norm=0.5,
             eps_clip=0.2,
             vf_coef=0.5,
-            ent_coef=0.05,
+            ent_coef=0,
+            gae_lambda=0.95,
+            advantage_normalization=False,
             reward_normalization=False,
+            dual_clip=None,
+            value_clip=False,
             action_space=gym.spaces.Discrete(action_shape),
+            recompute_advantage=False,
+            deterministic_eval=True,
             action_scaling=False,
         )
         
-        # Load the saved model weights
+        # Load weights
         saved_state_dict = torch.load(self.model_path, map_location='cpu')
         policy.load_state_dict(saved_state_dict, strict=False)
-        
-        # Set to evaluation mode
         policy.eval()
-        
         return policy
     
     def get_optimal_action(self, state_str):

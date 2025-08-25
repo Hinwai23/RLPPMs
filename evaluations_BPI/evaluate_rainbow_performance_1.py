@@ -7,16 +7,21 @@ import numpy as np
 import pandas as pd
 import gymnasium as gym
 from collections import defaultdict
+import random
 
 from BPI_env.csv_to_gym_BPI import BPIEnv, activity2idx, encode_state, all_transitions
-from benchmarkBPI.Rainbow import RainbowNet, NoisyLinear 
+from tianshou.utils.net.common import Net
 from tianshou.policy import RainbowPolicy
+from tianshou.utils.net.discrete import NoisyLinear
 
+
+torch.use_deterministic_algorithms(True)
 
 class RainbowEvaluator:
     def __init__(self, model_path='rainbow_bpi_best.pth'):
         """
         Initialize the Rainbow evaluator
+        Initialize the Rainbow evaluator for BPI
         """
         self.model_path = model_path
         self.activity2idx = activity2idx
@@ -24,8 +29,8 @@ class RainbowEvaluator:
         
         # Rainbow hyperparameters (must match training)
         self.num_atoms = 51
-        self.v_min = -15
-        self.v_max = 15.0
+        self.v_min = -10.0
+        self.v_max = 10.0
         
         # Load the trained Rainbow model
         self.policy = self._load_model()
@@ -35,17 +40,26 @@ class RainbowEvaluator:
         
     def _load_model(self):
         """Load the trained Rainbow model"""
-        # Model architecture should match the training
-        state_shape = (29,)  # From the environment
+        state_shape = (29,)
         action_shape = len(self.activity2idx)
         
-        net = RainbowNet(state_shape, action_shape, self.num_atoms, hidden_size=256)
-
+        def noisy_linear(x, y):
+            return NoisyLinear(x, y, 0.1)
         
-        # Create policy with the same parameters as training
+        net = Net(
+            state_shape,
+            action_shape,
+            [256,256],
+            torch.nn.Mish,
+            softmax=True,
+            num_atoms=self.num_atoms,
+            dueling_param=({"linear_layer": noisy_linear}, {"linear_layer": noisy_linear}),
+            device="cpu",
+        )
+        
         policy = RainbowPolicy(
             model=net,
-            optim=torch.optim.Adam(net.parameters(), lr=3e-4),  
+            optim=torch.optim.Adam(net.parameters(), lr=1e-3),
             action_space=gym.spaces.Discrete(action_shape),
             discount_factor=0.99,
             num_atoms=self.num_atoms,
@@ -55,23 +69,11 @@ class RainbowEvaluator:
             target_update_freq=500,
         )
         
-        # Load the saved model weights
         saved_state_dict = torch.load(self.model_path, map_location='cpu')
-        
-        # Filter out only the main model parameters (remove model_old parameters)
-        filtered_state_dict = {}
-        for key, value in saved_state_dict.items():
-            if not key.startswith('model_old'):
-                filtered_state_dict[key] = value
-        
-        # Load the filtered state dict
-        policy.load_state_dict(filtered_state_dict, strict=False)
-        
-        # Set to evaluation mode
+        policy.load_state_dict(saved_state_dict)
         policy.eval()
-        
         return policy
-    
+
     def get_optimal_action(self, state_str):
         """Get the optimal action according to Rainbow policy for a given state"""
         state_vec = encode_state(state_str)

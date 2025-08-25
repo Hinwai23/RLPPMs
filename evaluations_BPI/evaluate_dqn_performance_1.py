@@ -15,7 +15,7 @@ from tianshou.policy import DQNPolicy
 class DQNEvaluator:
     def __init__(self, model_path='dqn_bpi_best.pth'):
         """
-        Initialize the DQN evaluator
+        Initialize the DQN evaluator for BPI
         """
         self.model_path = model_path
         self.activity2idx = activity2idx
@@ -28,20 +28,20 @@ class DQNEvaluator:
         self.env = BPIEnv(all_transitions, activity2idx, use_true_end_reward=True)
         
     def _load_model(self):
-        """Load the trained DQN model - fixed version"""
+        """Load the trained DQN model - BPI version"""
         # Model architecture should match the training
         state_shape = (29,)  # From the environment
         action_shape = len(self.activity2idx)
         
         # Create the same network structure as in training
-        net = Net(state_shape, action_shape)
+        net = Net(state_shape, action_shape,[256,256],torch.nn.Mish,device="cpu").to("cpu")
         
         # Create policy with minimal setup (no need for training parameters)
         policy = DQNPolicy(
             model=net,
             optim=torch.optim.Adam(net.parameters()),  
             action_space=gym.spaces.Discrete(action_shape),
-            discount_factor=0.95,
+            discount_factor=0.90,
             estimation_step=1, 
             target_update_freq=500,
         )
@@ -49,14 +49,8 @@ class DQNEvaluator:
         # Load the saved model weights
         saved_state_dict = torch.load(self.model_path, map_location='cpu')
         
-        # Filter out only the main model parameters (remove model_old parameters)
-        filtered_state_dict = {}
-        for key, value in saved_state_dict.items():
-            if not key.startswith('model_old'):
-                filtered_state_dict[key] = value
-        
         # Load the filtered state dict
-        policy.load_state_dict(filtered_state_dict, strict=False)
+        policy.load_state_dict(saved_state_dict)
         
         # Set to evaluation mode
         policy.eval()

@@ -23,38 +23,36 @@ from tianshou.policy import RainbowPolicy
 
 
 from torch.optim import Adam
+
+
 import torch.optim as optim
+from ELR_env.csv_to_gym_ELR import ELREnv, activity2idx, train_transitions, all_transitions, MaskedEnvWrapper
 
-
-from BPI_env.csv_to_gym_BPI import BPIEnv, activity2idx, train_transitions, all_transitions, MaskedEnvWrapper
 
 def make_train_env():
     return MaskedEnvWrapper(
-        BPIEnv(train_transitions, activity2idx,
-               use_true_end_reward=True, reward_scale=0.001)
+        ELREnv(train_transitions, activity2idx, use_true_end_reward=True, reward_scale=0.001)
     )
+
 
 def make_eval_env():
     return MaskedEnvWrapper(
-        BPIEnv(all_transitions, activity2idx,
-               use_true_end_reward=True, reward_scale=0.001)
+        ELREnv(all_transitions, activity2idx, use_true_end_reward=True, reward_scale=0.001)
     )
-
 
 
 
 def save_best_fn(policy):
-    # Save policy network
-    torch.save(policy.state_dict(), 'rainbow_bpi_best.pth')
+    torch.save(policy.state_dict(), 'rainbow_elr_best.pth')
 
 
-if __name__ == '__main__':
 
-
-    log_dir = f"training_logs/rainbow_bpi_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    writer = SummaryWriter(log_dir)
+if __name__ == "__main__":
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_dir = f"training_logs/Rainbow_ELR_{timestamp}"
+    writer = SummaryWriter(log_dir=log_dir)
     logger = TensorboardLogger(writer)
-
+    
     train_envs = DummyVectorEnv([make_train_env for _ in range(4)])
     eval_envs = DummyVectorEnv([make_eval_env for _ in range(2)])
     
@@ -113,9 +111,7 @@ if __name__ == '__main__':
     train_collector.reset()
     test_collector.reset()
 
-
     train_collector.collect(n_step=5000)
-
 
     def train_fn(epoch, env_step):
         policy.set_eps(0.1)
@@ -131,7 +127,7 @@ if __name__ == '__main__':
         max_epoch=50,
         step_per_epoch=100,
         step_per_collect=1000,
-        episode_per_test=5,
+        episode_per_test=100,
         batch_size=128,
         save_best_fn=save_best_fn,
         logger=logger,
@@ -141,6 +137,5 @@ if __name__ == '__main__':
     ).run()
 
     writer.close()
-
-    print('Training completed')
-
+    
+    print("Finished training")

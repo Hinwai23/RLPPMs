@@ -1,4 +1,3 @@
-import torch
 import os
 import sys
 
@@ -18,33 +17,32 @@ from tianshou.policy import PPOPolicy
 from tianshou.utils.net.common import ActorCritic, Net
 from tianshou.utils.net.discrete import Actor, Critic
 
-from EL_env.csv_to_gym_EL import ELEnv, activity2idx, train_transitions, all_transitions, MaskedEnvWrapper
-
+from ELR_env.csv_to_gym_ELR import ELREnv, activity2idx, train_transitions, all_transitions, MaskedEnvWrapper
 
 def make_train_env():
     return MaskedEnvWrapper(
-        ELEnv(train_transitions, activity2idx,
-               use_true_end_reward=True, reward_scale=0.001)
+        ELREnv(train_transitions, activity2idx, use_true_end_reward=True, reward_scale=0.001)
     )
+
 
 def make_eval_env():
     return MaskedEnvWrapper(
-        ELEnv(all_transitions, activity2idx,
-               use_true_end_reward=True, reward_scale=0.001)
+        ELREnv(all_transitions, activity2idx, use_true_end_reward=True, reward_scale=0.001)
     )
 
 
 
 def save_best_fn(policy):
-    torch.save(policy.state_dict(), 'ppo_el_best.pth')
+    torch.save(policy.state_dict(), 'ppo_elr_best.pth')
+
 
 
 if __name__ == "__main__":
-
-    log_dir = f"training_logs/ppo_el_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    writer = SummaryWriter(log_dir)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_dir = f"training_logs/PPO_ELR_{timestamp}"
+    writer = SummaryWriter(log_dir=log_dir)
     logger = TensorboardLogger(writer)
-
+    
     train_envs = DummyVectorEnv([make_train_env for _ in range(4)])
     eval_envs = DummyVectorEnv([make_eval_env for _ in range(2)])
     
@@ -122,4 +120,4 @@ if __name__ == "__main__":
 
     writer.close()
     
-    print("Training completed!")
+    print("Finished training")

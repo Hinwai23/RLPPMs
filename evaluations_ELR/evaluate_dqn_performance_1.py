@@ -8,71 +8,57 @@ import pandas as pd
 import gymnasium as gym
 from collections import defaultdict
 
-from EL_env.csv_to_gym_EL import ELEnv, activity2idx, encode_state, all_transitions
-from tianshou.policy import PPOPolicy
-from tianshou.utils.net.common import ActorCritic, Net
-from tianshou.utils.net.discrete import Actor, Critic
+from ELR_env.csv_to_gym_ELR import ELREnv, activity2idx, encode_state, all_transitions
+from tianshou.utils.net.common import Net
+from tianshou.policy import DQNPolicy
 
-class PPOEvaluator:
-    def __init__(self, model_path='ppo_el_best.pth'):
+class DQNEvaluator:
+    def __init__(self, model_path='dqn_elr_best.pth'):
         """
-        Initialize the PPO evaluator for EL
+        Initialize the DQN evaluator for ELR
         """
         self.model_path = model_path
         self.activity2idx = activity2idx
         self.idx2activity = {i: act for act, i in activity2idx.items()}
         
-        # Load the trained PPO model
+        # Load the trained DQN model
         self.policy = self._load_model()
         
         # Create environment for evaluation
-        self.env = ELEnv(all_transitions, activity2idx, use_true_end_reward=True)
+        self.env = ELREnv(all_transitions, activity2idx, use_true_end_reward=True)
         
     def _load_model(self):
-        """Load the trained PPO model"""
+        """Load the trained DQN model - ELR version"""
+        # Model architecture should match the training
         state_shape = (29,)  # From the environment
         action_shape = len(self.activity2idx)
-        device = "cpu"
         
-        # Build networks consistent with training (EL PPO.py)
-        base = Net(state_shape, hidden_sizes=[256,256], activation=torch.nn.Mish, device=device).to(device)
-        actor = Actor(base, action_shape, device=device).to(device)
-        critic = Critic(base, device=device).to(device)
-        actor_critic = ActorCritic(actor, critic)
+        # Create the same network structure as in training
+        net = Net(state_shape, action_shape,[256,256],torch.nn.Mish,device="cpu").to("cpu")
         
-        # Optimizer required by policy
-        optim = torch.optim.Adam(actor_critic.parameters(), lr=3e-4)
-        
-        # Policy with training hyperparameters
-        policy = PPOPolicy(
-            actor=actor,
-            critic=critic,
-            optim=optim,
-            dist_fn=lambda logits: torch.distributions.Categorical(logits=logits),
-            discount_factor=0.95,
-            max_grad_norm=0.5,
-            eps_clip=0.2,
-            vf_coef=0.5,
-            ent_coef=0,
-            gae_lambda=0.95,
-            advantage_normalization=False,
-            reward_normalization=False,
-            dual_clip=None,
-            value_clip=False,
+        # Create policy with minimal setup (no need for training parameters)
+        policy = DQNPolicy(
+            model=net,
+            optim=torch.optim.Adam(net.parameters()),  
             action_space=gym.spaces.Discrete(action_shape),
-            recompute_advantage=False,
-            deterministic_eval=True,
-            action_scaling=False,
+            discount_factor=0.90,
+            estimation_step=1, 
+            target_update_freq=500,
         )
         
-        # Load weights
+        # Load the saved model weights
         saved_state_dict = torch.load(self.model_path, map_location='cpu')
-        policy.load_state_dict(saved_state_dict, strict=False)
+        
+        # Load the filtered state dict
+        policy.load_state_dict(saved_state_dict)
+        
+        # Set to evaluation mode
         policy.eval()
+        
         return policy
     
     def get_optimal_action(self, state_str):
-        """Get the optimal action according to PPO policy for a given state"""
+        """Get the optimal action according to DQN policy for a given state"""
         state_vec = encode_state(state_str)
         
         # Get valid actions for this state
@@ -83,28 +69,25 @@ class PPOEvaluator:
         if not valid_actions:
             return None
         
-        self.policy.actor.eval()
+        self.policy.model.eval()
             
-        # Get action probabilities from the actor network
+        # Get Q-values from the model - use the network directly instead of policy
         with torch.no_grad():
             # Convert to tensor and add batch dimension
             obs_tensor = torch.tensor(state_vec, dtype=torch.float32).unsqueeze(0)
             
-            # Get logits from the actor network
-            logits, _ = self.policy.actor(obs_tensor)
-            logits = logits.squeeze()
+            # Use the network directly to get Q-values
+            q_values, _ = self.policy.model(obs_tensor)
+            q_values = q_values.squeeze()
             
-            # Mask invalid actions by setting their logits to very negative values
-            masked_logits = logits.clone()
-            mask = torch.ones_like(logits) * float('-inf')
+            # Mask invalid actions
+            masked_q_values = q_values.clone()
+            mask = torch.ones_like(q_values) * float('-inf')
             mask[valid_actions] = 0
-            masked_logits = masked_logits + mask
+            masked_q_values = masked_q_values + mask
             
-            # For evaluation, we can either:
-            # 1. Take the action with highest probability (deterministic)
-            # 2. Sample from the distribution (stochastic)
-            # We'll use deterministic for consistency
-            optimal_action_idx = torch.argmax(masked_logits).item()
+            # Get the action with highest Q-value
+            optimal_action_idx = torch.argmax(masked_q_values).item()
             
         return self.idx2activity[optimal_action_idx]
     
@@ -265,17 +248,18 @@ class PPOEvaluator:
         
         print("=" * 80)
 
+
 def main():
     """
-    Main function to run the evaluation
+    Main function to run the evaluation for ELR
     """
-    print("Initializing PPO evaluator...")
+    print("Initializing DQN evaluator (ELR)...")
     
     # Initialize evaluator with the saved model
-    evaluator = PPOEvaluator('ppo_el_best.pth')
+    evaluator = DQNEvaluator('dqn_elr_best.pth')
     
     # Run evaluation on test data
-    test_file_path = 'preprocess/logs/80_20/MDP/event_log_10000_cumulative_rewards_testing_20_mdp.csv'
+    test_file_path = 'preprocess/logs/80_20/MDP/event_log_rare_10000_cumulative_rewards_testing_20_mdp.csv'
     
     try:
         results = evaluator.evaluate_performance(test_file_path)
@@ -289,4 +273,4 @@ def main():
         traceback.print_exc()
 
 if __name__ == "__main__":
-    main() 
+    main()
