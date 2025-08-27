@@ -13,7 +13,7 @@ def create_mdp_csv(xes_file_path, output_csv_path=None):
         output_csv_path (str): Path to the output CSV file (optional)
     
     Returns:
-        pandas.DataFrame: The MDP dataframe with columns s, a, s', reward, case
+        pandas.DataFrame: The MDP dataframe with columns s, a, s', reward, case, amount
     """
     
     # Read the XES file

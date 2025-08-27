@@ -139,7 +139,7 @@ def evaluate_prefix_range(test_file_path: str, prefixes: list[int]) -> None:
 
 def main() -> None:
     test_file_path = 'preprocess/logs/80_20/MDP/event_log_rare_10000_cumulative_rewards_testing_20_mdp.csv'
-    prefixes = list(range(3, 11))
+    prefixes = list(range(3, 16))
     evaluate_prefix_range(test_file_path, prefixes)
 
 

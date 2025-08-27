@@ -6,12 +6,12 @@ def extract_ints_from_state(state_str):
     return [int(x) for x in parts[1:]]  # 跳过第一个label
 
 def find_max_ints(states):
-    max_vals = [float('-inf')] * 5
+    max_vals = [float('-inf')] * 2
     for s in states:
         if s in ("START", "END"):
             continue  
         ints = extract_ints_from_state(s)
-        for i in range(5):
+        for i in range(2):
             if ints[i] > max_vals[i]:
                 max_vals[i] = ints[i]
     return max_vals
@@ -50,4 +50,4 @@ def check_states_actions(train_csv, test_csv):
 
 
 if __name__ == "__main__":
-    check_states_actions("logs/80_20/MDP/event_log_rare_10000_cumulative_rewards_training_80_mdp.csv", "logs/80_20/MDP/event_log_rare_10000_cumulative_rewards_testing_20_mdp.csv")
+    check_states_actions("logs/80_20/MDP/Road_Traffic_Fine_Management_Process_cumulative_rewards_training_80_mdp.csv", "logs/80_20/MDP/Road_Traffic_Fine_Management_Process_cumulative_rewards_testing_20_mdp.csv")
