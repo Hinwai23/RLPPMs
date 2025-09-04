@@ -27,16 +27,16 @@ from torch.optim import Adam
 
 import torch.optim as optim
 
-from EL_env.csv_to_gym_EL import ELEnv, activity2idx, train_transitions, all_transitions, MaskedEnvWrapper
+from EL_env.csv_to_gym_EL import ELEnv, activity2idx, train_transitions, all_transitions, ActionMaskObsWrapper
 
 def make_train_env():
-    return MaskedEnvWrapper(
+    return ActionMaskObsWrapper(
         ELEnv(train_transitions, activity2idx,
                use_true_end_reward=True, reward_scale=0.001)
     )
 
 def make_eval_env():
-    return MaskedEnvWrapper(
+    return ActionMaskObsWrapper(
         ELEnv(all_transitions, activity2idx,
                use_true_end_reward=True, reward_scale=0.001)
     )
@@ -57,14 +57,19 @@ if __name__ == '__main__':
     train_envs = DummyVectorEnv([make_train_env for _ in range(4)])
     eval_envs = DummyVectorEnv([make_eval_env for _ in range(2)])
     
-    seed = 42
+    seed = 43
     torch.manual_seed(seed)
     np.random.seed(seed)
     train_envs.seed(seed)
     eval_envs.seed(seed)
 
     # Network and policy
-    state_shape = train_envs.observation_space[0].shape
+    state_shape = train_envs.observation_space[0]
+    if isinstance(state_shape, spaces.Dict):
+        state_shape = state_shape["obs"].shape
+    else:
+        state_shape = state_shape.shape
+
     action_shape = train_envs.action_space[0].n
 
     def noisy_linear(x, y):
@@ -128,7 +133,7 @@ if __name__ == '__main__':
         max_epoch=50,
         step_per_epoch=100,
         step_per_collect=1000,
-        episode_per_test=20,
+        episode_per_test=100,
         batch_size=128,
         save_best_fn=save_best_fn,
         logger=logger,

@@ -20,19 +20,20 @@ from tianshou.data import VectorReplayBuffer, Collector, Batch
 from tianshou.policy import DQNPolicy
 from tianshou.utils.net.common import Net
 from tianshou.trainer import OffpolicyTrainer
+from gymnasium.wrappers import TimeLimit
 
 import torch.optim as optim
 
-from RTFM_env.csv_to_gym_RTFM import RTFMEnv, activity2idx, train_transitions, all_transitions, MaskedEnvWrapper
+from RTFM_env.csv_to_gym_RTFM import RTFMEnv, activity2idx, train_transitions, all_transitions, ActionMaskObsWrapper
 
 
 
 
 def make_train_env():
-    return MaskedEnvWrapper(RTFMEnv(train_transitions, activity2idx))
+    return ActionMaskObsWrapper(TimeLimit(RTFMEnv(train_transitions, activity2idx), max_episode_steps=200))
 
 def make_eval_env():
-    return MaskedEnvWrapper(RTFMEnv(all_transitions, activity2idx))
+    return ActionMaskObsWrapper(TimeLimit(RTFMEnv(all_transitions, activity2idx), max_episode_steps=200))
 
 
 
@@ -57,7 +58,12 @@ if __name__ == "__main__":
     eval_env.seed(seed)
     
     # Network and policy
-    state_shape = train_envs.observation_space[0].shape
+    state_shape = train_envs.observation_space[0]
+    if isinstance(state_shape, spaces.Dict):
+        state_shape = state_shape["obs"].shape
+    else:
+        state_shape = state_shape.shape
+        
     action_shape = train_envs.action_space[0].n
     net = Net(state_shape, action_shape,[256,256],torch.nn.Mish,device="cpu").to("cpu")
     optim_ = optim.Adam(net.parameters(), lr=1e-4)

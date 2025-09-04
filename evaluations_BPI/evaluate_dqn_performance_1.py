@@ -41,7 +41,7 @@ class DQNEvaluator:
             model=net,
             optim=torch.optim.Adam(net.parameters()),  
             action_space=gym.spaces.Discrete(action_shape),
-            discount_factor=0.90,
+            discount_factor=0.95,
             estimation_step=1, 
             target_update_freq=500,
         )

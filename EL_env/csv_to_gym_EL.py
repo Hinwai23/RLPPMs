@@ -163,19 +163,13 @@ class ELEnv(gym.Env):
         valid_actions = self.get_valid_actions()
         if action_idx not in valid_actions:
             if valid_actions:
-                action_idx = np.random.choice(valid_actions)
-                penalty = -0.1
-                info = {"invalid_action_penalty": True}
-            else:
                 next_vec = encode_state("END")
-                reward = -0.5
+                reward = -1.0
                 terminated = True
                 truncated = False
-                info = {"no_valid_actions": True}
+                info = {"invalid_action": True}
                 return next_vec, reward, terminated, truncated, info
-        else:
-            penalty = 0.0
-            info = {}
+
 
 
 
@@ -217,17 +211,84 @@ class ELEnv(gym.Env):
         pass
 
 
-    
-class MaskedEnvWrapper(Wrapper):
+
+
+class ActionMaskObsWrapper(gym.Wrapper):
+    """
+    Wrap any discrete-action env so that observations become a Dict with:
+        - "obs": the original observation
+        - "mask": a 0/1 array where 1 means the action is currently legal
+
+    Tianshou 1.1's DQNPolicy will automatically respect `obs["mask"]` for
+    greedy and epsilon-greedy action selection, as well as target action
+    selection in Double-DQN.
+    """
     def __init__(self, env):
         super().__init__(env)
+        if not isinstance(self.env.action_space, spaces.Discrete):
+            raise TypeError("ActionMaskObsWrapper requires a Discrete action space.")
+        self._n_act = self.env.action_space.n
 
+        # if the underlying environment has already returned Dict(obs, mask), then just pass through
+        if isinstance(self.env.observation_space, spaces.Dict) and \
+           "obs" in self.env.observation_space and "mask" in self.env.observation_space:
+            self._passthrough = True
+            self.observation_space = self.env.observation_space
+        else:
+            self._passthrough = False
+            self.observation_space = spaces.Dict({
+                "obs": self.env.observation_space,
+                "mask": spaces.MultiBinary(self._n_act),
+            })
+
+    # ---------- helpers ----------
+    def _compute_mask(self, info=None):
+        """
+        Priority:
+        1) env.get_action_mask()(if the underlying environment provides)
+        2) info["mask"](if the underlying environment puts the mask in info)
+        3) info["legal_actions"](list[int])→ convert to one-hot
+        4) fallback: all 1(at least one action should be legal)
+        """
+        import numpy as np
+
+        if hasattr(self.env, "get_action_mask"):
+            mask = self.env.get_action_mask()
+        elif info is not None and "mask" in (info or {}):
+            mask = info["mask"]
+        elif info is not None and "legal_actions" in (info or {}):
+            legal = info["legal_actions"]
+            mask = np.zeros(self._n_act, dtype=np.int8)
+            mask[legal] = 1
+        else:
+            mask = np.ones(self._n_act, dtype=np.int8)
+
+        mask = np.asarray(mask)
+        if mask.ndim == 0:
+            mask = np.full(self._n_act, 1 if bool(mask) else 0, dtype=np.int8)
+        if mask.dtype != np.int8 and mask.dtype != bool:
+            mask = mask.astype(np.int8)
+        if mask.shape != (self._n_act,):
+            raise ValueError(f"mask shape {mask.shape} != ({self._n_act},)")
+        return mask
+
+    # ---------- gym API ----------
     def reset(self, **kwargs):
-        obs = self.env.reset(**kwargs)
+        obs, info = self.env.reset(**kwargs)
+        if self._passthrough:
+            return obs, info
+        mask = self._compute_mask(info)
 
-        return obs
+
+
+        return {"obs": obs, "mask": mask}, info
 
     def step(self, action):
-        obs, rew, done, trunc, info = self.env.step(action)
-        info["mask"] = self.env.get_action_mask()
-        return obs, rew, done, trunc, info
+        obs, rew, terminated, truncated, info = self.env.step(action)
+        if self._passthrough:
+            return obs, rew, terminated, truncated, info
+        mask = self._compute_mask(info)
+
+
+
+        return {"obs": obs, "mask": mask}, rew, terminated, truncated, info

@@ -101,7 +101,7 @@ class RainbowGreedyHelper:
         return self.idx2activity[optimal_action_idx]
 
 
-def simulate_case_acceptance(case_df: pd.DataFrame, prefix: int, helper: RainbowGreedyHelper) -> bool:
+def simulate_case_acceptance(case_df: pd.DataFrame, prefix: int, helper: RainbowGreedyHelper, case_id: str) -> bool:
     """
     - if case rows < prefix: check if 'O_ACCEPTED' appears; if yes, accept, otherwise reject.
     - otherwise: if 'O_ACCEPTED' appears before prefix, accept; otherwise, from the prefix-th state, use the optimal valid action
@@ -136,6 +136,8 @@ def simulate_case_acceptance(case_df: pd.DataFrame, prefix: int, helper: Rainbow
         if next_state is None or next_state == 'END':
             break
         current_state = next_state
+    else:
+        print(f"Warning: Max steps ({max_steps}) reached for case {case_id} at prefix {prefix}.")
 
     return False
 
@@ -162,7 +164,7 @@ def evaluate_prefix_range(test_file_path: str, prefixes: list[int]) -> None:
         accepted_cases = set()
         for case_id, g in grouped:
             g = g.reset_index(drop=True)
-            accepted = simulate_case_acceptance(g, prefix, helper)
+            accepted = simulate_case_acceptance(g, prefix, helper, case_id)
             if accepted:
                 accepted_cases.add(case_id)
 
@@ -174,7 +176,7 @@ def evaluate_prefix_range(test_file_path: str, prefixes: list[int]) -> None:
 
 def main() -> None:
     test_file_path = 'preprocess/logs/80_20/MDP/BPI_2012_cumulative_rewards_testing_20_mdp.csv'
-    prefixes = list(range(3, 16))
+    prefixes = list(range(1, 16))
     evaluate_prefix_range(test_file_path, prefixes)
 
 

@@ -31,16 +31,16 @@ import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 import datetime
 
-from BPI_env.csv_to_gym_BPI import BPIEnv, activity2idx, train_transitions, all_transitions, MaskedEnvWrapper
+from BPI_env.csv_to_gym_BPI import BPIEnv, activity2idx, train_transitions, all_transitions, ActionMaskObsWrapper
 
 
 
 
 def make_train_env():
-    return MaskedEnvWrapper(BPIEnv(train_transitions, activity2idx, use_true_end_reward=True, reward_scale=0.001))
+    return ActionMaskObsWrapper(BPIEnv(train_transitions, activity2idx, use_true_end_reward=True, reward_scale=0.001))
 
 def make_eval_env():
-    return MaskedEnvWrapper(BPIEnv(all_transitions, activity2idx, use_true_end_reward=True, reward_scale=0.001))
+    return ActionMaskObsWrapper(BPIEnv(all_transitions, activity2idx, use_true_end_reward=True, reward_scale=0.001))
 
 
 
@@ -65,16 +65,21 @@ if __name__ == "__main__":
     train_envs.seed(seed)
     eval_env.seed(seed)
     
-    state_shape = train_envs.observation_space[0].shape  
+    state_shape = train_envs.observation_space[0]
+    if isinstance(state_shape, spaces.Dict):
+        state_shape = state_shape["obs"].shape
+    else:
+        state_shape = state_shape.shape
+    
     action_shape = train_envs.action_space[0].n  
     
     net = Net(state_shape, action_shape,[256,256],torch.nn.Mish,device="cpu").to("cpu")
-    optim_ = optim.Adam(net.parameters(), lr=1e-4)
+    optim_ = optim.Adam(net.parameters(), lr=1e-3)
     policy = DQNPolicy(
         model=net,
         optim=optim_,
         action_space=train_envs.action_space[0],
-        discount_factor=0.90,
+        discount_factor=0.95,
         estimation_step=1,
         target_update_freq=500,
     )
@@ -101,7 +106,7 @@ if __name__ == "__main__":
         max_epoch=50,
         step_per_epoch=100,
         step_per_collect=1000,
-        episode_per_test=100,
+        episode_per_test=50,
         batch_size=128,
         save_best_fn=save_best_fn,
         logger=logger,

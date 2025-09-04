@@ -20,6 +20,7 @@ from torch.utils.tensorboard import SummaryWriter
 from tianshou.utils.net.common import Net
 from tianshou.utils.net.discrete import NoisyLinear
 from tianshou.policy import RainbowPolicy
+from gymnasium.wrappers import TimeLimit
 
 
 from torch.optim import Adam
@@ -27,15 +28,15 @@ from torch.optim import Adam
 
 import torch.optim as optim
 
-from RTFM_env.csv_to_gym_RTFM import RTFMEnv, activity2idx, train_transitions, all_transitions, MaskedEnvWrapper
+from RTFM_env.csv_to_gym_RTFM import RTFMEnv, activity2idx, train_transitions, all_transitions, ActionMaskObsWrapper
 
 def make_train_env():
-    return MaskedEnvWrapper(
+    return ActionMaskObsWrapper(
         RTFMEnv(train_transitions, activity2idx)
     )
 
 def make_eval_env():
-    return MaskedEnvWrapper(
+    return ActionMaskObsWrapper(
         RTFMEnv(all_transitions, activity2idx)
     )
 
@@ -62,7 +63,12 @@ if __name__ == '__main__':
     eval_envs.seed(seed)
 
     # Network and policy
-    state_shape = train_envs.observation_space[0].shape
+    state_shape = train_envs.observation_space[0]
+    if isinstance(state_shape, spaces.Dict):
+        state_shape = state_shape["obs"].shape
+    else:
+        state_shape = state_shape.shape
+        
     action_shape = train_envs.action_space[0].n
 
     def noisy_linear(x, y):

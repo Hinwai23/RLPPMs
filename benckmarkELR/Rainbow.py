@@ -26,17 +26,17 @@ from torch.optim import Adam
 
 
 import torch.optim as optim
-from ELR_env.csv_to_gym_ELR import ELREnv, activity2idx, train_transitions, all_transitions, MaskedEnvWrapper
+from ELR_env.csv_to_gym_ELR import ELREnv, activity2idx, train_transitions, all_transitions, ActionMaskObsWrapper
 
 
 def make_train_env():
-    return MaskedEnvWrapper(
+    return ActionMaskObsWrapper(
         ELREnv(train_transitions, activity2idx, use_true_end_reward=True, reward_scale=0.001)
     )
 
 
 def make_eval_env():
-    return MaskedEnvWrapper(
+    return ActionMaskObsWrapper(
         ELREnv(all_transitions, activity2idx, use_true_end_reward=True, reward_scale=0.001)
     )
 
@@ -63,7 +63,12 @@ if __name__ == "__main__":
     eval_envs.seed(seed)
 
     # Network and policy
-    state_shape = train_envs.observation_space[0].shape
+    state_shape = train_envs.observation_space[0]
+    if isinstance(state_shape, spaces.Dict):
+        state_shape = state_shape["obs"].shape
+    else:
+        state_shape = state_shape.shape
+        
     action_shape = train_envs.action_space[0].n
 
     def noisy_linear(x, y):
