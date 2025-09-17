@@ -153,7 +153,6 @@ def merge_consecutive_same_events(tracefilter_log):
 def addRewardCumulative(tracefilter_log_pos_2, path):
 	output_path = path.replace(".xes", "_cumulative_rewards.xes")
 	for trace in tracefilter_log_pos_2:
-		objective_event = False
 		cumulative_reward = 0
 		if AMOUNT_LABEL in trace.attributes.keys():
 			amount = int(trace.attributes[AMOUNT_LABEL])
@@ -167,9 +166,8 @@ def addRewardCumulative(tracefilter_log_pos_2, path):
 			if 'duration' in event.keys() and event["concept:name"] not in ["START", "END"]:
 				reward -= 0.01 * event['duration']
 			if event["concept:name"] == "O_ACCEPTED":
-				objective_event = True
-			if event["concept:name"] == "END" and objective_event:
 				reward += 0.15 * amount
+
 			cumulative_reward += reward
 			event["kpi:reward"] = round(reward, 2)
 
@@ -178,7 +176,7 @@ def addRewardCumulative(tracefilter_log_pos_2, path):
 
 
 if __name__ == '__main__':
-	file_names = ['event_log_rare_10000']
+	file_names = ['BPI_2012']
 	for file_name in file_names:
 		print("Current working directory:", os.getcwd())
 		print('file:', file_name)
