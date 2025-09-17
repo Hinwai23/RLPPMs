@@ -12,6 +12,8 @@ import gymnasium as gym
 from gymnasium import spaces
 import pandas as pd
 import copy
+from gymnasium.wrappers import TimeLimit
+
 
 
 
@@ -37,10 +39,14 @@ from BPI_env.csv_to_gym_BPI import BPIEnv, activity2idx, train_transitions, all_
 
 
 def make_train_env():
-    return ActionMaskObsWrapper(BPIEnv(train_transitions, activity2idx, use_true_end_reward=True, reward_scale=0.001))
+    env = BPIEnv(train_transitions, activity2idx,
+               use_true_end_reward=True, reward_scale=0.001)
+    return ActionMaskObsWrapper(TimeLimit(env, max_episode_steps=200))
 
 def make_eval_env():
-    return ActionMaskObsWrapper(BPIEnv(all_transitions, activity2idx, use_true_end_reward=True, reward_scale=0.001))
+    env = BPIEnv(all_transitions, activity2idx,
+               use_true_end_reward=True, reward_scale=0.001)
+    return ActionMaskObsWrapper(TimeLimit(env, max_episode_steps=200))
 
 
 
@@ -59,7 +65,7 @@ if __name__ == "__main__":
     train_envs = DummyVectorEnv([make_train_env for _ in range(4)])
     eval_env = DummyVectorEnv([make_eval_env for _ in range(2)])
 
-    seed = 42
+    seed = 43
     torch.manual_seed(seed)
     np.random.seed(seed)
     train_envs.seed(seed)
@@ -87,7 +93,7 @@ if __name__ == "__main__":
     # Data collectors
     buffer = VectorReplayBuffer(total_size=100000, buffer_num=len(train_envs))
     train_collector = Collector(policy, train_envs, buffer, exploration_noise=True)
-    eval_collector = Collector(policy, eval_env, exploration_noise=True)
+    eval_collector = Collector(policy, eval_env, exploration_noise=False)
     train_collector.reset()
     eval_collector.reset()
     train_collector.collect(n_step=5000)

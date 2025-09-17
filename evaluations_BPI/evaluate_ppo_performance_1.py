@@ -145,17 +145,14 @@ class PPOEvaluator:
     
     def calculate_offer_acceptance_rate(self, case_data):
         """
-        Calculate offer acceptance rate for a case
-        Check if the final reward is greater than 0
+        Calculate offer acceptance rate for a case.
+        An offer is considered accepted if the 'O_ACCEPTED' action appears anywhere in the case.
         """
         if len(case_data) == 0:
             return 0.0
             
-        # Check if the final reward is greater than 0
-        final_reward = case_data.iloc[-1].get('reward', 0) if 'reward' in case_data.columns else 0
-        
-        # If final reward > 0, consider it as offer accepted
-        if final_reward > 0:
+        # Check if 'O_ACCEPTED' exists in the 'a' column (actions)
+        if 'a' in case_data.columns and 'O_ACCEPTED' in case_data['a'].values:
             return 1.0
         else:
             return 0.0

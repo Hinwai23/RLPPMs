@@ -101,53 +101,53 @@ class RainbowGreedyHelper:
         return self.idx2activity[optimal_action_idx]
 
 
-def simulate_case_acceptance(case_df: pd.DataFrame, prefix: int, helper: RainbowGreedyHelper, case_id: str) -> bool:
+def simulate_case_acceptance(case_df: pd.DataFrame, prefix: int, helper: RainbowGreedyHelper) -> tuple[bool, bool]:
     """
-    - if case rows < prefix: check if 'O_ACCEPTED' appears; if yes, accept, otherwise reject.
-    - otherwise: if 'O_ACCEPTED' appears before prefix, accept; otherwise, from the prefix-th state, use the optimal valid action
-      and the corresponding next state to scroll until 'END' or 'O_ACCEPTED' is selected.
-    return a boolean value.
+    Simulates the process from a given prefix to determine if the case is accepted.
+    
+    Returns:
+        A tuple of (bool, bool) for (is_accepted, max_steps_reached).
     """
     num_rows = len(case_df)
     actions_series = case_df['a'] if 'a' in case_df.columns else pd.Series(dtype=object)
 
     if num_rows < prefix:
-        return ('O_ACCEPTED' in set(actions_series.values))
+        return ('O_ACCEPTED' in set(actions_series.values), False)
 
     pre_actions = actions_series.iloc[: max(prefix - 1, 0)]
     if 'O_ACCEPTED' in set(pre_actions.values):
-        return True
+        return True, False
 
     start_state = case_df.iloc[prefix - 1]['s']
     if start_state == 'END':
-        return False
+        return False, False
 
     current_state = start_state
     max_steps = 2000
-    for _ in range(max_steps):
+    
+    for i in range(max_steps):
         optimal_action = helper.get_optimal_action(current_state)
         if optimal_action is None:
-            break
+            return False, False  # Loop broken, max steps not reached
+
         if optimal_action == 'O_ACCEPTED':
-            return True
+            return True, False  # Loop broken, max steps not reached
 
         next_tuple = helper.env.transitions.get(current_state, {}).get(optimal_action, (None, None))
         next_state = next_tuple[0]
         if next_state is None or next_state == 'END':
-            break
+            return False, False  # Loop broken, max steps not reached
+        
         current_state = next_state
-    else:
-        print(f"Warning: Max steps ({max_steps}) reached for case {case_id} at prefix {prefix}.")
-
-    return False
+    
+    # If the loop completes without breaking, it means max_steps was reached.
+    return False, True
 
 
 def evaluate_prefix_range(test_file_path: str, prefixes: list[int]) -> None:
-    # a: sum of reward column in test file
     test_df = pd.read_csv(test_file_path)
     a_value = float(test_df['reward'].sum()) if 'reward' in test_df.columns else 0.0
 
-    # prepare: group by case, pre-fetch amount of each case (take the first row)
     grouped = test_df.groupby('case')
     total_cases = int(test_df['case'].nunique())
     case_amount = {}
@@ -157,21 +157,31 @@ def evaluate_prefix_range(test_file_path: str, prefixes: list[int]) -> None:
         else:
             case_amount[case_id] = 0.0
 
-    # load Rainbow greedy helper (load once, reuse many times)
     helper = RainbowGreedyHelper('rainbow_bpi_best.pth')
 
     for prefix in prefixes:
         accepted_cases = set()
+        max_steps_cases_count = 0
         for case_id, g in grouped:
             g = g.reset_index(drop=True)
-            accepted = simulate_case_acceptance(g, prefix, helper, case_id)
+            accepted, max_steps_reached = simulate_case_acceptance(g, prefix, helper)
+            
+            if max_steps_reached:
+                max_steps_cases_count += 1
+                # Optional: print the warning immediately if you still want it
+                # print(f"Warning: Max steps ({2000}) reached for case {case_id} at prefix {prefix}.")
+
             if accepted:
                 accepted_cases.add(case_id)
 
-        # b: sum of amount of accepted cases * 0.15
         b_value = 0.15 * sum(case_amount.get(cid, 0.0) for cid in accepted_cases)
         avg_delta = (b_value - a_value) / total_cases if total_cases > 0 else 0.0
-        print(f"prefix={prefix}, avg_delta={avg_delta}")
+        
+        # Format the output string
+        output = f"prefix={prefix}, avg_delta={avg_delta}"
+        if max_steps_cases_count > 0:
+            output += f", cases_reached_max_steps={max_steps_cases_count}"
+        print(output)
 
 
 def main() -> None:

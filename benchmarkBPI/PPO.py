@@ -151,7 +151,7 @@ if __name__ == "__main__":
         policy=policy,
         train_collector=train_collector,
         test_collector=eval_collector,
-        max_epoch=100,
+        max_epoch=50,
         step_per_epoch=100,
         step_per_collect=10000,
         repeat_per_collect=10,
